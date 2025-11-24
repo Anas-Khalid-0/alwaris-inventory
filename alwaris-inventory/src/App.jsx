@@ -284,8 +284,6 @@ const App = () => {
       await signInAnonymously(auth); 
     } catch (e) { 
       console.error("Auth failed:", e);
-      // FALLBACK: Automatically login as guest if config is missing/wrong
-      // This allows the app to work even if Auth isn't set up in Console
       setUser({ uid: 'guest', isAnonymous: true });
     }
   };
@@ -308,7 +306,7 @@ const App = () => {
     const unsubItems = onSnapshot(itemsRef, (snapshot) => {
       const loadedItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setItems(loadedItems);
-      setIsInitialLoad(false);
+      setIsInitialLoad(false); // <--- THIS LINE FIXES THE STUCK SPINNER!
     }, (err) => {
         console.error("Items Fetch Error:", err);
         setIsInitialLoad(false);
@@ -334,7 +332,6 @@ const App = () => {
       const fieldToUpdate = unit === 'Unit 1' ? 'stockUnit1' : 'stockUnit2';
       const change = actionType === 'IN' ? qty : -qty;
       
-      // HANG FIX: Use setDoc(merge) to ensure write succeeds even if document is "missing"
       await setDoc(itemRef, {
         [fieldToUpdate]: increment(change)
       }, { merge: true });
