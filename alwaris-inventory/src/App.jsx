@@ -1,14 +1,15 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   User, Package, ArrowDownCircle, ArrowUpCircle, AlertTriangle, History, 
   BarChart3, Search, LogOut, Plus, Minus, ClipboardCheck, Lock, 
-  UserCheck, Beaker, Palette, Layers, X, Wifi, WifiOff, RefreshCw
+  UserCheck, Beaker, Palette, Layers, X, WifiOff, RefreshCw, CheckCircle
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAnalytics } from "firebase/analytics"; 
 import { 
   getFirestore, collection, addDoc, setDoc, onSnapshot, query, 
-  orderBy, updateDoc, doc, serverTimestamp, increment, limit 
+  orderBy, updateDoc, doc, serverTimestamp, increment, limit, 
+  enableIndexedDbPersistence 
 } from 'firebase/firestore';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 
@@ -28,6 +29,21 @@ const analytics = getAnalytics(app);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = firebaseConfig.projectId || 'alwaris-default';
+
+// --- TOAST NOTIFICATION COMPONENT ---
+const Toast = ({ message, type, onClose }) => {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 3000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  return (
+    <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-full shadow-xl z-50 flex items-center animate-in slide-in-from-top-5 ${type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}>
+      {type === 'success' ? <CheckCircle size={18} className="mr-2" /> : <AlertTriangle size={18} className="mr-2" />}
+      <span className="font-bold text-sm">{message}</span>
+    </div>
+  );
+};
 
 // --- COMPONENTS ---
 
@@ -170,7 +186,7 @@ const InventoryCard = ({ item, onAction, role }) => {
   );
 };
 
-const NewItemModal = ({ isOpen, onClose, onSubmit, loading }) => {
+const NewItemModal = ({ isOpen, onClose, onSubmit }) => {
   if (!isOpen) return null;
   const [formData, setFormData] = useState({ name: '', type: 'Dye', supplier: '', unit: 'kg', threshold: 10 });
   const handleSubmit = (e) => { e.preventDefault(); onSubmit(formData); setFormData({ name: '', type: 'Dye', supplier: '', unit: 'kg', threshold: 10 }); };
@@ -197,14 +213,14 @@ const NewItemModal = ({ isOpen, onClose, onSubmit, loading }) => {
             <input type="text" required value={formData.supplier} onChange={(e) => setFormData({...formData, supplier: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium outline-none" placeholder="e.g., Archroma" /></div>
           <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Low Stock Alert Level</label>
             <input type="number" required value={formData.threshold} onChange={(e) => setFormData({...formData, threshold: Number(e.target.value)})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium outline-none" /></div>
-          <button disabled={loading} className="w-full py-3 rounded-xl font-bold text-white shadow-lg flex items-center justify-center bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition-all">{loading ? 'Saving...' : 'Add Item to Database'}</button>
+          <button className="w-full py-3 rounded-xl font-bold text-white shadow-lg flex items-center justify-center bg-blue-600 hover:bg-blue-700 transition-all">Add Item to Database (Instant)</button>
         </form>
       </div>
     </div>
   );
 };
 
-const ActionModal = ({ isOpen, onClose, type, item, onSubmit, loading }) => {
+const ActionModal = ({ isOpen, onClose, type, item, onSubmit }) => {
   if (!isOpen || !item) return null;
   const [qty, setQty] = useState('');
   const [unit, setUnit] = useState('Unit 2');
@@ -226,14 +242,14 @@ const ActionModal = ({ isOpen, onClose, type, item, onSubmit, loading }) => {
             <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Quantity ({item.unit})</label><input type="number" required min="0.01" step="0.01" value={qty} onChange={(e) => setQty(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium outline-none" placeholder="0.00" /></div>
           </div>
           <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">{type === 'IN' ? 'Supplier / Invoice #' : 'Batch Number / Purpose'}</label><input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium outline-none" placeholder={type === 'IN' ? "e.g. Inv-998" : "e.g. Lot-55"} /></div>
-          <button disabled={loading || !operatorName} className={`w-full py-4 rounded-xl font-bold text-white shadow-lg flex items-center justify-center ${type === 'IN' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-slate-900 hover:bg-slate-800'} disabled:opacity-50 transition-all`}>{loading ? <div className="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full"></div> : 'Confirm Transaction'}</button>
+          <button disabled={!operatorName} className={`w-full py-4 rounded-xl font-bold text-white shadow-lg flex items-center justify-center ${type === 'IN' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-slate-900 hover:bg-slate-800'} disabled:opacity-50 transition-all`}>Confirm (Instant Save)</button>
         </form>
       </div>
     </div>
   );
 };
 
-const AuditModal = ({ isOpen, onClose, item, onSubmit, loading }) => {
+const AuditModal = ({ isOpen, onClose, item, onSubmit }) => {
   if (!isOpen || !item) return null;
   const [actualQty, setActualQty] = useState('');
   const [unit, setUnit] = useState('Unit 2');
@@ -254,7 +270,7 @@ const AuditModal = ({ isOpen, onClose, item, onSubmit, loading }) => {
             <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">System Says</label><div className="p-3 bg-slate-100 rounded-xl font-mono text-slate-500">{systemQty} {item.unit}</div></div>
           </div>
           <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Physical Count (Actual)</label><input type="number" required value={actualQty} onChange={(e) => setActualQty(e.target.value)} className="w-full p-3 bg-white border-2 border-amber-200 rounded-xl font-bold text-lg focus:ring-2 focus:ring-amber-500 outline-none" /></div>
-          <button disabled={loading || !operatorName} className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl shadow-lg disabled:opacity-50">{loading ? 'Updating...' : 'Record Mismatch'}</button>
+          <button disabled={!operatorName} className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl shadow-lg disabled:opacity-50">Update Mismatch</button>
         </form>
       </div>
     </div>
@@ -268,7 +284,6 @@ const App = () => {
   const [view, setView] = useState('inventory');
   const [items, setItems] = useState([]);
   const [logs, setLogs] = useState([]);
-  const [loading, setLoading] = useState(false);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [inventoryCategory, setInventoryCategory] = useState('Dye');
   const [modalOpen, setModalOpen] = useState(false);
@@ -277,6 +292,11 @@ const App = () => {
   const [activeItem, setActiveItem] = useState(null);
   const [actionType, setActionType] = useState('IN');
   const [searchQuery, setSearchQuery] = useState('');
+  const [toast, setToast] = useState(null); // { message, type }
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+  };
 
   const connectAuth = async () => {
     setAuthError(null);
@@ -289,6 +309,21 @@ const App = () => {
   };
 
   useEffect(() => {
+    // Attempt to enable offline persistence
+    try {
+      enableIndexedDbPersistence(db).catch((err) => {
+        if (err.code == 'failed-precondition') {
+           // Multiple tabs open, persistence can only be enabled in one tab at a a time.
+           console.log("Persistence failed: Multiple tabs open");
+        } else if (err.code == 'unimplemented') {
+           // The current browser does not support all of the features required to enable persistence
+           console.log("Persistence not supported");
+        }
+      });
+    } catch (e) {
+      console.log("Persistence init error:", e);
+    }
+
     connectAuth();
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       if (u) {
@@ -306,7 +341,7 @@ const App = () => {
     const unsubItems = onSnapshot(itemsRef, (snapshot) => {
       const loadedItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setItems(loadedItems);
-      setIsInitialLoad(false); // <--- THIS LINE FIXES THE STUCK SPINNER!
+      setIsInitialLoad(false);
     }, (err) => {
         console.error("Items Fetch Error:", err);
         setIsInitialLoad(false);
@@ -325,13 +360,19 @@ const App = () => {
     return () => { unsubItems(); unsubLogs(); };
   }, [user]);
 
+  // --- HANDLERS (OPTIMISTIC UPDATE) ---
+  
   const handleTransaction = async ({ itemId, qty, unit, notes, itemName, actionType, operatorName }) => {
-    setLoading(true);
+    // 1. Close Modal IMMEDIATELY
+    setModalOpen(false);
+    showToast("Transaction Saved! Syncing...", "success");
+
     try {
       const itemRef = doc(db, 'artifacts', appId, 'public', 'data', 'inventory', itemId);
       const fieldToUpdate = unit === 'Unit 1' ? 'stockUnit1' : 'stockUnit2';
       const change = actionType === 'IN' ? qty : -qty;
       
+      // 2. Send to Firebase in Background
       await setDoc(itemRef, {
         [fieldToUpdate]: increment(change)
       }, { merge: true });
@@ -348,29 +389,35 @@ const App = () => {
         timestamp: serverTimestamp() 
       });
 
-      setModalOpen(false);
     } catch (error) { 
       console.error("Transaction failed:", error); 
-      alert("Transaction failed. Please check internet."); 
-    } finally { 
-      setLoading(false); 
+      showToast("Sync Failed. Check Connection.", "error");
     }
   };
 
   const handleAddItem = async (formData) => {
-    setLoading(true);
-    try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'inventory'), { ...formData, stockUnit1: 0, stockUnit2: 0 }); setNewItemModalOpen(false); } catch (error) { console.error("Error adding item:", error); alert("Failed to add item."); } finally { setLoading(false); }
+    // 1. Close Modal IMMEDIATELY
+    setNewItemModalOpen(false);
+    showToast("New Item Added!", "success");
+
+    try { 
+      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'inventory'), { ...formData, stockUnit1: 0, stockUnit2: 0 }); 
+    } catch (error) { 
+      console.error("Error adding item:", error); 
+      showToast("Failed to add item", "error");
+    }
   };
 
   const handleAudit = async ({ itemId, diff, actualQty, unit, itemName, operatorName }) => {
-    setLoading(true);
+    setAuditModalOpen(false);
+    showToast("Audit Recorded.", "success");
+
     try {
       const itemRef = doc(db, 'artifacts', appId, 'public', 'data', 'inventory', itemId);
       const fieldToUpdate = unit === 'Unit 1' ? 'stockUnit1' : 'stockUnit2';
       await setDoc(itemRef, { [fieldToUpdate]: actualQty }, { merge: true });
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'logs'), { type: 'AUDIT', itemName, itemId, qty: diff, unit, notes: `Mismatch corrected. System was off by ${Math.abs(diff)}.`, operatorName, userRole: role, timestamp: serverTimestamp() });
-      setAuditModalOpen(false);
-    } catch (error) { console.error(error); } finally { setLoading(false); }
+    } catch (error) { console.error(error); showToast("Audit Sync Failed", "error"); }
   };
 
   const getGroupedItems = () => {
@@ -386,6 +433,8 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-slate-100 pb-20 md:pb-0 md:pl-64">
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      
       <div className="md:fixed md:inset-y-0 md:left-0 md:w-64 bg-slate-900 text-white flex flex-col shadow-2xl z-30">
         <div className="p-6 border-b border-slate-800 flex justify-between items-center md:block">
           <div><h1 className="font-black text-xl tracking-tight">AL-WARIS <span className="text-blue-500">IMS</span></h1><p className="text-xs text-slate-500 mt-1">{role}</p></div><button onClick={() => setRole(null)} className="md:hidden text-slate-400"><LogOut size={20} /></button>
@@ -466,9 +515,9 @@ const App = () => {
           </>
         )}
       </main>
-      <ActionModal isOpen={modalOpen} onClose={() => setModalOpen(false)} item={activeItem} type={actionType} onSubmit={handleTransaction} loading={loading} />
-      <NewItemModal isOpen={newItemModalOpen} onClose={() => setNewItemModalOpen(false)} onSubmit={handleAddItem} loading={loading} />
-      <AuditModal isOpen={auditModalOpen} onClose={() => setAuditModalOpen(false)} item={activeItem} onSubmit={handleAudit} loading={loading} />
+      <ActionModal isOpen={modalOpen} onClose={() => setModalOpen(false)} item={activeItem} type={actionType} onSubmit={handleTransaction} />
+      <NewItemModal isOpen={newItemModalOpen} onClose={() => setNewItemModalOpen(false)} onSubmit={handleAddItem} />
+      <AuditModal isOpen={auditModalOpen} onClose={() => setAuditModalOpen(false)} item={activeItem} onSubmit={handleAudit} />
     </div>
   );
 };
