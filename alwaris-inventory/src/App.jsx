@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   User, Package, ArrowDownCircle, ArrowUpCircle, AlertTriangle, History, 
   BarChart3, Search, LogOut, Plus, Minus, ClipboardCheck, Lock, 
-  UserCheck, Beaker, Palette, Layers, X, Database
+  UserCheck, Beaker, Palette, Layers, X, Wifi, WifiOff, RefreshCw
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAnalytics } from "firebase/analytics"; 
@@ -26,13 +26,12 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const analytics = getAnalytics(app); 
 const auth = getAuth(app);
-// SPEED FIX: Reverted to standard Firestore to prevent cache hangs
-const db = getFirestore(app); 
+const db = getFirestore(app);
 const appId = firebaseConfig.projectId || 'alwaris-default';
 
 // --- COMPONENTS ---
 
-const LoginScreen = ({ onLogin }) => {
+const LoginScreen = ({ onLogin, authError, onRetry }) => {
   const [selectedRole, setSelectedRole] = useState(null);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -55,6 +54,23 @@ const LoginScreen = ({ onLogin }) => {
       setError('Invalid Password');
     }
   };
+
+  if (authError) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 text-center">
+          <div className="bg-red-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+            <WifiOff className="text-red-600" size={28} />
+          </div>
+          <h2 className="text-xl font-bold text-slate-900 mb-2">Connection Error</h2>
+          <p className="text-slate-600 mb-6 text-sm">{authError}</p>
+          <button onClick={onRetry} className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 flex items-center justify-center">
+            <RefreshCw size={18} className="mr-2" /> Retry Connection
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (selectedRole === 'Director') {
     return (
@@ -247,6 +263,7 @@ const AuditModal = ({ isOpen, onClose, item, onSubmit, loading }) => {
 
 const App = () => {
   const [user, setUser] = useState(null);
+  const [authError, setAuthError] = useState(null);
   const [role, setRole] = useState(null);
   const [view, setView] = useState('inventory');
   const [items, setItems] = useState([]);
@@ -261,18 +278,24 @@ const App = () => {
   const [actionType, setActionType] = useState('IN');
   const [searchQuery, setSearchQuery] = useState('');
 
+  const connectAuth = async () => {
+    setAuthError(null);
+    try { 
+      await signInAnonymously(auth); 
+    } catch (e) { 
+      console.error("Auth failed:", e);
+      // FALLBACK: Automatically login as guest if config is missing/wrong
+      // This allows the app to work even if Auth isn't set up in Console
+      setUser({ uid: 'guest', isAnonymous: true });
+    }
+  };
+
   useEffect(() => {
-    const initAuth = async () => {
-      try { 
-        await signInAnonymously(auth); 
-      } catch (e) { 
-        console.warn("Auth warning: Anonymous sign-in disabled. Using guest fallback.");
-        setUser({ uid: 'guest-fallback', isAnonymous: true });
-      }
-    };
-    initAuth();
+    connectAuth();
     const unsubscribe = onAuthStateChanged(auth, (u) => {
-      if (u) setUser(u);
+      if (u) {
+        setUser(u);
+      }
     });
     return () => unsubscribe();
   }, []);
@@ -281,8 +304,6 @@ const App = () => {
     if (!user) return;
     setIsInitialLoad(true);
 
-    // SPEED FIX: Removed the auto-writing loop that caused startup lag.
-    // Now it only listens for data, never tries to write dummy data on startup.
     const itemsRef = collection(db, 'artifacts', appId, 'public', 'data', 'inventory');
     const unsubItems = onSnapshot(itemsRef, (snapshot) => {
       const loadedItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -309,18 +330,16 @@ const App = () => {
   const handleTransaction = async ({ itemId, qty, unit, notes, itemName, actionType, operatorName }) => {
     setLoading(true);
     try {
-      // HANG FIX: Use setDoc with merge instead of updateDoc.
-      // This prevents the app from freezing if it tries to update a doc that hasn't fully synced yet.
       const itemRef = doc(db, 'artifacts', appId, 'public', 'data', 'inventory', itemId);
       const fieldToUpdate = unit === 'Unit 1' ? 'stockUnit1' : 'stockUnit2';
       const change = actionType === 'IN' ? qty : -qty;
       
+      // HANG FIX: Use setDoc(merge) to ensure write succeeds even if document is "missing"
       await setDoc(itemRef, {
         [fieldToUpdate]: increment(change)
       }, { merge: true });
 
-      // Log the transaction (Fire and forget for speed)
-      addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'logs'), { 
+      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'logs'), { 
         type: actionType, 
         itemName, 
         itemId, 
@@ -351,7 +370,7 @@ const App = () => {
     try {
       const itemRef = doc(db, 'artifacts', appId, 'public', 'data', 'inventory', itemId);
       const fieldToUpdate = unit === 'Unit 1' ? 'stockUnit1' : 'stockUnit2';
-      await setDoc(itemRef, { [fieldToUpdate]: actualQty }, { merge: true }); // Use setDoc here too
+      await setDoc(itemRef, { [fieldToUpdate]: actualQty }, { merge: true });
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'logs'), { type: 'AUDIT', itemName, itemId, qty: diff, unit, notes: `Mismatch corrected. System was off by ${Math.abs(diff)}.`, operatorName, userRole: role, timestamp: serverTimestamp() });
       setAuditModalOpen(false);
     } catch (error) { console.error(error); } finally { setLoading(false); }
@@ -366,7 +385,7 @@ const App = () => {
   };
   const groupedItems = getGroupedItems();
 
-  if (!role) return <LoginScreen onLogin={setRole} />;
+  if (!role) return <LoginScreen onLogin={setRole} authError={authError} onRetry={connectAuth} />;
 
   return (
     <div className="min-h-screen bg-slate-100 pb-20 md:pb-0 md:pl-64">
@@ -383,11 +402,10 @@ const App = () => {
       <div className="md:hidden bg-white p-2 flex justify-around shadow-sm sticky top-0 z-10"><button onClick={() => setView('inventory')} className={`p-2 rounded-lg font-bold text-sm ${view === 'inventory' ? 'text-blue-600 bg-blue-50' : 'text-slate-500'}`}>Inventory</button><button onClick={() => setView('logs')} className={`p-2 rounded-lg font-bold text-sm ${view === 'logs' ? 'text-blue-600 bg-blue-50' : 'text-slate-500'}`}>History</button></div>
       <main className="p-4 md:p-8 max-w-6xl mx-auto">
         
-        {/* Loading Spinner State */}
         {isInitialLoad ? (
           <div className="flex flex-col items-center justify-center h-[50vh] text-slate-400 animate-in fade-in">
             <div className="animate-spin w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full mb-4"></div>
-            <p className="font-medium animate-pulse">Syncing Warehouse Data...</p>
+            <p className="font-medium animate-pulse">Loading Stock Data...</p>
           </div>
         ) : (
           <>
