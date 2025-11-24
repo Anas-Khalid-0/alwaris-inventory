@@ -2,14 +2,13 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   User, Package, ArrowDownCircle, ArrowUpCircle, AlertTriangle, History, 
   BarChart3, Search, LogOut, Plus, Minus, ClipboardCheck, Lock, 
-  UserCheck, Beaker, Palette, Layers, X, WifiOff
+  UserCheck, Beaker, Palette, Layers, X, Database
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAnalytics } from "firebase/analytics"; 
 import { 
-  getFirestore, collection, addDoc, onSnapshot, query, 
-  orderBy, updateDoc, doc, serverTimestamp, increment, limit,
-  initializeFirestore, persistentLocalCache, persistentMultipleTabManager
+  getFirestore, collection, addDoc, setDoc, onSnapshot, query, 
+  orderBy, updateDoc, doc, serverTimestamp, increment, limit 
 } from 'firebase/firestore';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 
@@ -27,12 +26,8 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const analytics = getAnalytics(app); 
 const auth = getAuth(app);
-
-// OPTIMIZATION: Enable Offline Persistence (Loads instantly on second visit)
-const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
-});
-
+// SPEED FIX: Reverted to standard Firestore to prevent cache hangs
+const db = getFirestore(app); 
 const appId = firebaseConfig.projectId || 'alwaris-default';
 
 // --- COMPONENTS ---
@@ -126,7 +121,7 @@ const InventoryCard = ({ item, onAction, role }) => {
       <div className="flex justify-between items-start mb-3">
         <div>
           <h3 className="font-bold text-slate-900 text-lg leading-tight">{item.name}</h3>
-          <span className="text-xs text-slate-400 mt-1 block">ID: {item.id.slice(0,8)}</span>
+          <span className="text-xs text-slate-400 mt-1 block">ID: {item.id ? item.id.slice(0,8) : '...'}</span>
         </div>
         <div className="text-right">
           <div className="text-xl font-black text-slate-800">{totalStock} <span className="text-xs font-medium text-slate-500">{item.unit}</span></div>
@@ -271,7 +266,7 @@ const App = () => {
       try { 
         await signInAnonymously(auth); 
       } catch (e) { 
-        // Fallback for development if auth fails
+        console.warn("Auth warning: Anonymous sign-in disabled. Using guest fallback.");
         setUser({ uid: 'guest-fallback', isAnonymous: true });
       }
     };
@@ -286,8 +281,8 @@ const App = () => {
     if (!user) return;
     setIsInitialLoad(true);
 
-    // OPTIMIZATION: Removed the Auto-Demo-Data creation loop.
-    // This prevents 5 writes every time the app opens, speeding it up significantly.
+    // SPEED FIX: Removed the auto-writing loop that caused startup lag.
+    // Now it only listens for data, never tries to write dummy data on startup.
     const itemsRef = collection(db, 'artifacts', appId, 'public', 'data', 'inventory');
     const unsubItems = onSnapshot(itemsRef, (snapshot) => {
       const loadedItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -314,13 +309,36 @@ const App = () => {
   const handleTransaction = async ({ itemId, qty, unit, notes, itemName, actionType, operatorName }) => {
     setLoading(true);
     try {
+      // HANG FIX: Use setDoc with merge instead of updateDoc.
+      // This prevents the app from freezing if it tries to update a doc that hasn't fully synced yet.
       const itemRef = doc(db, 'artifacts', appId, 'public', 'data', 'inventory', itemId);
       const fieldToUpdate = unit === 'Unit 1' ? 'stockUnit1' : 'stockUnit2';
       const change = actionType === 'IN' ? qty : -qty;
-      await updateDoc(itemRef, { [fieldToUpdate]: increment(change) });
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'logs'), { type: actionType, itemName, itemId, qty, unit, notes, operatorName, userRole: role, timestamp: serverTimestamp() });
+      
+      await setDoc(itemRef, {
+        [fieldToUpdate]: increment(change)
+      }, { merge: true });
+
+      // Log the transaction (Fire and forget for speed)
+      addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'logs'), { 
+        type: actionType, 
+        itemName, 
+        itemId, 
+        qty, 
+        unit, 
+        notes, 
+        operatorName, 
+        userRole: role, 
+        timestamp: serverTimestamp() 
+      });
+
       setModalOpen(false);
-    } catch (error) { console.error("Transaction failed:", error); alert("Transaction failed. Please try again."); } finally { setLoading(false); }
+    } catch (error) { 
+      console.error("Transaction failed:", error); 
+      alert("Transaction failed. Please check internet."); 
+    } finally { 
+      setLoading(false); 
+    }
   };
 
   const handleAddItem = async (formData) => {
@@ -333,7 +351,7 @@ const App = () => {
     try {
       const itemRef = doc(db, 'artifacts', appId, 'public', 'data', 'inventory', itemId);
       const fieldToUpdate = unit === 'Unit 1' ? 'stockUnit1' : 'stockUnit2';
-      await updateDoc(itemRef, { [fieldToUpdate]: actualQty });
+      await setDoc(itemRef, { [fieldToUpdate]: actualQty }, { merge: true }); // Use setDoc here too
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'logs'), { type: 'AUDIT', itemName, itemId, qty: diff, unit, notes: `Mismatch corrected. System was off by ${Math.abs(diff)}.`, operatorName, userRole: role, timestamp: serverTimestamp() });
       setAuditModalOpen(false);
     } catch (error) { console.error(error); } finally { setLoading(false); }
