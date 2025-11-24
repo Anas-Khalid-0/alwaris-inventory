@@ -2,13 +2,14 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   User, Package, ArrowDownCircle, ArrowUpCircle, AlertTriangle, History, 
   BarChart3, Search, LogOut, Plus, Minus, ClipboardCheck, Lock, 
-  UserCheck, Beaker, Palette, Layers, X
+  UserCheck, Beaker, Palette, Layers, X, WifiOff
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAnalytics } from "firebase/analytics"; 
 import { 
-  getFirestore, collection, addDoc, setDoc, onSnapshot, query, 
-  orderBy, updateDoc, doc, serverTimestamp, increment, limit 
+  getFirestore, collection, addDoc, onSnapshot, query, 
+  orderBy, updateDoc, doc, serverTimestamp, increment, limit,
+  initializeFirestore, persistentLocalCache, persistentMultipleTabManager
 } from 'firebase/firestore';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 
@@ -26,17 +27,13 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const analytics = getAnalytics(app); 
 const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = firebaseConfig.projectId || 'alwaris-default';
 
-// --- MOCK DATA FOR DEMO INITIALIZATION ---
-const INITIAL_ITEMS = [
-  { id: 'chem-001', name: 'Reactive Red 198', type: 'Dye', supplier: 'Clariant', unit: 'kg', threshold: 50 },
-  { id: 'chem-002', name: 'Sulphur Black 1', type: 'Dye', supplier: 'DyStar', unit: 'kg', threshold: 100 },
-  { id: 'chem-003', name: 'Enzyme Bio-Polish', type: 'Chemical', supplier: 'Novozymes', unit: 'L', threshold: 200 },
-  { id: 'chem-004', name: 'Acetic Acid', type: 'Chemical', supplier: 'Local', unit: 'L', threshold: 500 },
-  { id: 'chem-005', name: 'Softener Silicon', type: 'Chemical', supplier: 'Rudolf', unit: 'kg', threshold: 150 },
-];
+// OPTIMIZATION: Enable Offline Persistence (Loads instantly on second visit)
+const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+});
+
+const appId = firebaseConfig.projectId || 'alwaris-default';
 
 // --- COMPONENTS ---
 
@@ -67,7 +64,7 @@ const LoginScreen = ({ onLogin }) => {
   if (selectedRole === 'Director') {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden p-8">
+        <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden p-8 animate-in zoom-in duration-300">
           <button onClick={() => setSelectedRole(null)} className="text-sm text-slate-500 mb-4 hover:text-blue-600">← Back</button>
           <div className="text-center mb-6">
             <div className="bg-slate-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -89,7 +86,7 @@ const LoginScreen = ({ onLogin }) => {
 
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-in fade-in duration-500">
         <div className="bg-slate-800 p-8 text-center">
           <h1 className="text-2xl font-black text-white tracking-tight">AL-WARIS <span className="text-blue-400">IMS</span></h1>
           <p className="text-slate-400 text-sm mt-2">Inventory Management System</p>
@@ -260,7 +257,7 @@ const App = () => {
   const [items, setItems] = useState([]);
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [isInitialLoad, setIsInitialLoad] = useState(true); // <--- NEW LOADING STATE
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [inventoryCategory, setInventoryCategory] = useState('Dye');
   const [modalOpen, setModalOpen] = useState(false);
   const [newItemModalOpen, setNewItemModalOpen] = useState(false);
@@ -274,7 +271,7 @@ const App = () => {
       try { 
         await signInAnonymously(auth); 
       } catch (e) { 
-        console.warn("Auth warning: Anonymous sign-in disabled. Using guest fallback.");
+        // Fallback for development if auth fails
         setUser({ uid: 'guest-fallback', isAnonymous: true });
       }
     };
@@ -287,25 +284,24 @@ const App = () => {
 
   useEffect(() => {
     if (!user) return;
-    // Set initial loading to true when user is found and we start fetching
     setIsInitialLoad(true);
 
+    // OPTIMIZATION: Removed the Auto-Demo-Data creation loop.
+    // This prevents 5 writes every time the app opens, speeding it up significantly.
     const itemsRef = collection(db, 'artifacts', appId, 'public', 'data', 'inventory');
     const unsubItems = onSnapshot(itemsRef, (snapshot) => {
       const loadedItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      if (loadedItems.length === 0) { INITIAL_ITEMS.forEach(async (item) => { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventory', item.id), { ...item, stockUnit1: 0, stockUnit2: 0 }); }); } else { setItems(loadedItems); }
-      
-      // Stop the spinner once items are loaded
+      setItems(loadedItems);
       setIsInitialLoad(false);
     }, (err) => {
         console.error("Items Fetch Error:", err);
-        setIsInitialLoad(false); // Stop spinner even if error
+        setIsInitialLoad(false);
     });
 
     const logsRef = query(
       collection(db, 'artifacts', appId, 'public', 'data', 'logs'), 
       orderBy('timestamp', 'desc'),
-      limit(50) // <--- PERFORMANCE FIX: Limit to 50 logs
+      limit(50)
     );
     
     const unsubLogs = onSnapshot(logsRef, (snapshot) => {
