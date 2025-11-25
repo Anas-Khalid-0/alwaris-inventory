@@ -156,8 +156,7 @@ const LoginScreen = ({ onLogin, authError, onRetry, lang, setLang, t }) => {
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
         <div className="bg-slate-800 p-8 text-center relative">
-          {/* Mobile & Desktop Lang Toggle */}
-          <button onClick={() => setLang(lang === 'en' ? 'ur' : 'en')} className="absolute top-4 right-4 bg-slate-700 text-white text-xs px-2 py-1 rounded flex items-center hover:bg-slate-600 transition-colors">
+          <button onClick={() => setLang(lang === 'en' ? 'ur' : 'en')} className="absolute top-4 right-4 bg-slate-700 text-white text-xs px-2 py-1 rounded flex items-center">
             <Languages size={12} className="mr-1"/> {lang === 'en' ? 'اردو' : 'English'}
           </button>
           <h1 className="text-2xl font-black text-white tracking-tight">AL-WARIS <span className="text-blue-400">IMS</span></h1>
