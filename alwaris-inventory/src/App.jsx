@@ -12,7 +12,6 @@ import {
   orderBy, updateDoc, doc, serverTimestamp, increment, limit 
 } from 'firebase/firestore';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
@@ -52,10 +51,9 @@ const TRANSLATIONS = {
     directorAccess: "Director Access",
     password: "Password",
     verify: "Login",
-    totalValue: "Total Value",
+    totalValue: "Total Inventory Value",
     scanMode: "Scan",
-    supplierDist: "Items by Supplier",
-    typeDist: "Inventory Type"
+    lowStockAlerts: "Low Stock Alerts"
   },
   ur: {
     inventory: "اسٹاک (Inventory)",
@@ -78,8 +76,7 @@ const TRANSLATIONS = {
     verify: "داخل ہوں",
     totalValue: "کل مالیت",
     scanMode: "اسکین",
-    supplierDist: "سپلائر کی تفصیل",
-    typeDist: "قسم"
+    lowStockAlerts: "وارننگ"
   }
 };
 
@@ -246,24 +243,11 @@ const InventoryCard = ({ item, onAction, role, t }) => {
   );
 };
 
-// --- REPORTING DASHBOARD ---
+// --- REPORTING DASHBOARD (Simplified: No Charts) ---
 const ReportsDashboard = ({ items, t }) => {
-  const typeData = [
-    { name: 'Dyes', value: items.filter(i => i.type === 'Dye').length },
-    { name: 'Chems', value: items.filter(i => i.type === 'Chemical').length },
-  ];
-  
-  const supplierData = useMemo(() => {
-    const counts = {};
-    items.forEach(item => { const sup = item.supplier || 'Unknown'; counts[sup] = (counts[sup] || 0) + 1; });
-    return Object.keys(counts).map(key => ({ name: key, value: counts[key] })).sort((a, b) => b.value - a.value);
-  }, [items]);
-
   const totalInventoryValue = useMemo(() => {
     return items.reduce((acc, item) => acc + ((item.stockUnit1 + item.stockUnit2) * (item.price || 0)), 0);
   }, [items]);
-
-  const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 
   return (
     <div className="space-y-6">
@@ -276,42 +260,11 @@ const ReportsDashboard = ({ items, t }) => {
         <div className="bg-white/10 p-3 rounded-full"><DollarSign size={32} className="text-green-400" /></div>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-4">
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-          <h3 className="font-bold text-slate-500 text-sm uppercase mb-4">{t.typeDist}</h3>
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={typeData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
-                  {typeData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
-                </Pie>
-                <Tooltip />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-          <h3 className="font-bold text-slate-500 text-sm uppercase mb-4">{t.supplierDist}</h3>
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={supplierData} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                <XAxis type="number" allowDecimals={false} />
-                <YAxis dataKey="name" type="category" width={80} style={{fontSize: '12px', fontWeight: '500'}} />
-                <Tooltip cursor={{fill: 'transparent'}} />
-                <Bar dataKey="value" fill="#8884d8" radius={[0, 4, 4, 0]} barSize={24}>
-                  {supplierData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </div>
-
+      {/* Low Stock Alerts */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-        <h3 className="font-bold text-slate-500 text-sm uppercase mb-4">{t.lowStockAlerts}</h3>
+        <h3 className="font-bold text-slate-500 text-sm uppercase mb-4 flex items-center">
+          <AlertTriangle size={16} className="mr-2 text-red-500" /> {t.lowStockAlerts}
+        </h3>
         <div className="space-y-2">
           {items.filter(i => (i.stockUnit1+i.stockUnit2) < i.threshold).map(i => (
             <div key={i.id} className="flex justify-between items-center p-3 bg-red-50 rounded-lg border border-red-100">
@@ -325,7 +278,7 @@ const ReportsDashboard = ({ items, t }) => {
               </div>
             </div>
           ))}
-          {items.filter(i => (i.stockUnit1+i.stockUnit2) < i.threshold).length === 0 && <p className="text-slate-400 italic">All stock levels good.</p>}
+          {items.filter(i => (i.stockUnit1+i.stockUnit2) < i.threshold).length === 0 && <p className="text-slate-400 italic p-4 text-center">All stock levels good.</p>}
         </div>
       </div>
     </div>
@@ -339,8 +292,6 @@ const ActionModal = ({ isOpen, onClose, type, item, onSubmit }) => {
   const [unit, setUnit] = useState('Unit 2');
   const [notes, setNotes] = useState('');
   const [operatorName, setOperatorName] = useState('');
-  
-  // For adding stock, maybe allow updating expiry? Simplified for now.
   
   const handleSubmit = (e) => { e.preventDefault(); onSubmit({ itemId: item.id, qty: Number(qty), unit, notes, itemName: item.name, actionType: type, operatorName }); setQty(''); setNotes(''); setOperatorName(''); };
 
