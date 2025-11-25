@@ -3,7 +3,7 @@ import {
   Package, ArrowDownCircle, ArrowUpCircle, AlertTriangle, History, 
   BarChart3, Search, LogOut, Plus, Minus, ClipboardCheck, Lock, 
   UserCheck, Beaker, Palette, Layers, X, WifiOff, RefreshCw, CheckCircle,
-  Languages, FileText, ScanLine, Printer
+  Languages, FileText, ScanLine, Printer, Calendar, DollarSign, Banknote
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAnalytics } from "firebase/analytics"; 
@@ -13,10 +13,6 @@ import {
 } from 'firebase/firestore';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-
-// NOTE: Removed jsPDF imports to prevent build errors in preview. 
-// For local development with PDF support, run: npm install jspdf jspdf-autotable
-// and uncomment the imports if you switch back to the library method.
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
@@ -46,23 +42,18 @@ const TRANSLATIONS = {
     chemicals: "Chemicals",
     new: "New Item",
     searchPlaceholder: "Search items...",
-    unit1: "Unit 1 (Azizabad)",
-    unit2: "Unit 2 (Highway)",
     add: "Add",
     use: "Use",
     lowStock: "Low Stock",
     outOfStock: "Empty",
     good: "Good",
-    transactionHistory: "Transaction History",
+    expired: "Expired",
+    expiring: "Expiring Soon",
     directorAccess: "Director Access",
     password: "Password",
-    verify: "Verify & Login",
-    connectionError: "Connection Error",
-    retry: "Retry",
-    totalItems: "Total Items",
-    lowStockAlerts: "Alerts",
-    totalValue: "Est. Value",
-    scanMode: "Scan Mode",
+    verify: "Login",
+    totalValue: "Total Value",
+    scanMode: "Scan",
     supplierDist: "Items by Supplier",
     typeDist: "Inventory Type"
   },
@@ -75,23 +66,18 @@ const TRANSLATIONS = {
     chemicals: "کیمیکل",
     new: "نیا آئٹم",
     searchPlaceholder: "تلاش کریں...",
-    unit1: "یونٹ 1 (عزیز آباد)",
-    unit2: "یونٹ 2 (ہائی وے)",
     add: "جمع",
     use: "خرچ",
     lowStock: "کم ہے",
     outOfStock: "ختم",
     good: "موجود",
-    transactionHistory: "لین دین کا ریکارڈ",
+    expired: "ایکسپائر",
+    expiring: "ایکسپائر ہو رہا ہے",
     directorAccess: "ڈائریکٹر لاگ ان",
     password: "پاس ورڈ",
     verify: "داخل ہوں",
-    connectionError: "انٹرنیٹ کنکشن مسلہ",
-    retry: "دوبارہ کوشش کریں",
-    totalItems: "کل آئٹم",
-    lowStockAlerts: "وارننگ",
     totalValue: "کل مالیت",
-    scanMode: "اسکین موڈ",
+    scanMode: "اسکین",
     supplierDist: "سپلائر کی تفصیل",
     typeDist: "قسم"
   }
@@ -113,8 +99,24 @@ const Toast = ({ message, type, onClose }) => {
 };
 
 // --- HELPERS ---
-const exportPDF = (items, lang) => {
+const exportPDF = () => {
   window.print();
+};
+
+const checkExpiry = (dateString) => {
+  if (!dateString) return 'good';
+  const today = new Date();
+  const expiry = new Date(dateString);
+  const diffTime = expiry - today;
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+  
+  if (diffDays < 0) return 'expired';
+  if (diffDays < 30) return 'expiring';
+  return 'good';
+};
+
+const formatCurrency = (value) => {
+  return new Intl.NumberFormat('en-PK', { style: 'currency', currency: 'PKR', maximumSignificantDigits: 3 }).format(value);
 };
 
 // --- COMPONENTS ---
@@ -180,6 +182,9 @@ const LoginScreen = ({ onLogin, authError, onRetry, lang, setLang, t }) => {
 
 const InventoryCard = ({ item, onAction, role, t }) => {
   const totalStock = (item.stockUnit1 || 0) + (item.stockUnit2 || 0);
+  const expiryStatus = checkExpiry(item.expiryDate);
+  const totalValue = totalStock * (item.price || 0);
+
   const getBadge = (qty, thresh) => {
     if (qty <= 0) return <span className="px-2 py-1 bg-red-100 text-red-700 text-xs font-bold rounded-md">{t.outOfStock}</span>;
     if (qty < thresh) return <span className="px-2 py-1 bg-amber-100 text-amber-700 text-xs font-bold rounded-md flex items-center"><AlertTriangle size={10} className="mr-1" /> {t.lowStock}</span>;
@@ -187,7 +192,7 @@ const InventoryCard = ({ item, onAction, role, t }) => {
   };
 
   return (
-    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm h-full flex flex-col">
+    <div className={`bg-white p-4 rounded-xl border shadow-sm h-full flex flex-col ${expiryStatus === 'expired' ? 'border-red-500 ring-1 ring-red-500' : 'border-slate-200'}`}>
       <div className="flex justify-between items-start mb-3">
         <div>
           <h3 className="font-bold text-slate-900 text-lg leading-tight">{item.name}</h3>
@@ -198,6 +203,23 @@ const InventoryCard = ({ item, onAction, role, t }) => {
           {getBadge(totalStock, item.threshold)}
         </div>
       </div>
+
+      {/* Expiry & Value Section */}
+      <div className="mb-3 flex items-center justify-between text-xs">
+        {item.expiryDate ? (
+          <div className={`flex items-center font-medium ${expiryStatus === 'expired' ? 'text-red-600' : expiryStatus === 'expiring' ? 'text-amber-600' : 'text-slate-500'}`}>
+            <Calendar size={12} className="mr-1" /> {item.expiryDate}
+            {expiryStatus === 'expired' && <span className="ml-1 font-bold">({t.expired})</span>}
+          </div>
+        ) : <span className="text-slate-300">-</span>}
+        
+        {role === 'Director' && item.price > 0 && (
+          <div className="text-green-700 font-bold flex items-center">
+            <Banknote size={12} className="mr-1" /> {formatCurrency(totalValue)}
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-2 gap-2 mb-4 bg-slate-50 p-2 rounded-lg mt-auto">
         <div className="text-center border-r border-slate-200">
           <div className="text-[10px] text-slate-500 uppercase">Unit 1</div>
@@ -224,34 +246,37 @@ const InventoryCard = ({ item, onAction, role, t }) => {
   );
 };
 
-// --- NEW: REPORTING DASHBOARD ---
+// --- REPORTING DASHBOARD ---
 const ReportsDashboard = ({ items, t }) => {
-  // Data for Type Distribution
   const typeData = [
     { name: 'Dyes', value: items.filter(i => i.type === 'Dye').length },
     { name: 'Chems', value: items.filter(i => i.type === 'Chemical').length },
   ];
   
-  // Data for Supplier Distribution
   const supplierData = useMemo(() => {
     const counts = {};
-    items.forEach(item => {
-      const sup = item.supplier || 'Unknown';
-      counts[sup] = (counts[sup] || 0) + 1;
-    });
-    // Convert to array and sort by count
-    return Object.keys(counts)
-      .map(key => ({ name: key, value: counts[key] }))
-      .sort((a, b) => b.value - a.value);
+    items.forEach(item => { const sup = item.supplier || 'Unknown'; counts[sup] = (counts[sup] || 0) + 1; });
+    return Object.keys(counts).map(key => ({ name: key, value: counts[key] })).sort((a, b) => b.value - a.value);
+  }, [items]);
+
+  const totalInventoryValue = useMemo(() => {
+    return items.reduce((acc, item) => acc + ((item.stockUnit1 + item.stockUnit2) * (item.price || 0)), 0);
   }, [items]);
 
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 
   return (
     <div className="space-y-6">
-      {/* Charts Row */}
+      {/* Value Card */}
+      <div className="bg-gradient-to-r from-slate-900 to-slate-800 p-6 rounded-xl shadow-lg text-white flex items-center justify-between">
+        <div>
+          <h3 className="text-slate-400 text-xs uppercase font-bold mb-1">{t.totalValue}</h3>
+          <div className="text-3xl font-black tracking-tight">{formatCurrency(totalInventoryValue)}</div>
+        </div>
+        <div className="bg-white/10 p-3 rounded-full"><DollarSign size={32} className="text-green-400" /></div>
+      </div>
+
       <div className="grid md:grid-cols-2 gap-4">
-        {/* Type Distribution (Pie) */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <h3 className="font-bold text-slate-500 text-sm uppercase mb-4">{t.typeDist}</h3>
           <div className="h-64 w-full">
@@ -267,7 +292,6 @@ const ReportsDashboard = ({ items, t }) => {
           </div>
         </div>
 
-        {/* Supplier Distribution (Bar) - NEW */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <h3 className="font-bold text-slate-500 text-sm uppercase mb-4">{t.supplierDist}</h3>
           <div className="h-64 w-full">
@@ -278,9 +302,7 @@ const ReportsDashboard = ({ items, t }) => {
                 <YAxis dataKey="name" type="category" width={80} style={{fontSize: '12px', fontWeight: '500'}} />
                 <Tooltip cursor={{fill: 'transparent'}} />
                 <Bar dataKey="value" fill="#8884d8" radius={[0, 4, 4, 0]} barSize={24}>
-                  {supplierData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
+                  {supplierData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -288,7 +310,6 @@ const ReportsDashboard = ({ items, t }) => {
         </div>
       </div>
 
-      {/* Low Stock Alerts Row */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
         <h3 className="font-bold text-slate-500 text-sm uppercase mb-4">{t.lowStockAlerts}</h3>
         <div className="space-y-2">
@@ -318,6 +339,9 @@ const ActionModal = ({ isOpen, onClose, type, item, onSubmit }) => {
   const [unit, setUnit] = useState('Unit 2');
   const [notes, setNotes] = useState('');
   const [operatorName, setOperatorName] = useState('');
+  
+  // For adding stock, maybe allow updating expiry? Simplified for now.
+  
   const handleSubmit = (e) => { e.preventDefault(); onSubmit({ itemId: item.id, qty: Number(qty), unit, notes, itemName: item.name, actionType: type, operatorName }); setQty(''); setNotes(''); setOperatorName(''); };
 
   return (
@@ -340,12 +364,12 @@ const ActionModal = ({ isOpen, onClose, type, item, onSubmit }) => {
 
 const NewItemModal = ({ isOpen, onClose, onSubmit }) => {
   if (!isOpen) return null;
-  const [data, setData] = useState({ name: '', type: 'Dye', supplier: '', unit: 'kg', threshold: 10 });
-  const handleSubmit = (e) => { e.preventDefault(); onSubmit(data); setData({ name: '', type: 'Dye', supplier: '', unit: 'kg', threshold: 10 }); };
+  const [data, setData] = useState({ name: '', type: 'Dye', supplier: '', unit: 'kg', threshold: 10, price: '', expiryDate: '' });
+  const handleSubmit = (e) => { e.preventDefault(); onSubmit(data); setData({ name: '', type: 'Dye', supplier: '', unit: 'kg', threshold: 10, price: '', expiryDate: '' }); };
   
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl w-full max-w-md p-6 animate-in zoom-in duration-200">
+      <div className="bg-white rounded-2xl w-full max-w-md p-6 animate-in zoom-in duration-200 overflow-y-auto max-h-[90vh]">
         <div className="flex justify-between mb-4"><h3 className="font-bold text-lg">New Item</h3><button onClick={onClose}><X /></button></div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <input type="text" placeholder="Item Name" className="w-full p-3 border rounded-xl" value={data.name} onChange={e => setData({...data, name: e.target.value})} required />
@@ -354,7 +378,14 @@ const NewItemModal = ({ isOpen, onClose, onSubmit }) => {
             <select className="p-3 border rounded-xl" value={data.unit} onChange={e => setData({...data, unit: e.target.value})}><option value="kg">kg</option><option value="L">L</option></select>
           </div>
           <input type="text" placeholder="Supplier" className="w-full p-3 border rounded-xl" value={data.supplier} onChange={e => setData({...data, supplier: e.target.value})} required />
-          <input type="number" placeholder="Low Stock Threshold" className="w-full p-3 border rounded-xl" value={data.threshold} onChange={e => setData({...data, threshold: Number(e.target.value)})} required />
+          <div className="grid grid-cols-2 gap-4">
+            <input type="number" placeholder="Low Alert" className="w-full p-3 border rounded-xl" value={data.threshold} onChange={e => setData({...data, threshold: Number(e.target.value)})} required />
+            <input type="number" placeholder="Price/Unit" className="w-full p-3 border rounded-xl" value={data.price} onChange={e => setData({...data, price: Number(e.target.value)})} />
+          </div>
+          <div className="flex flex-col">
+            <label className="text-xs font-bold text-slate-500 mb-1">Expiry Date (Optional)</label>
+            <input type="date" className="w-full p-3 border rounded-xl" value={data.expiryDate} onChange={e => setData({...data, expiryDate: e.target.value})} />
+          </div>
           <button className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl">Add Item</button>
         </form>
       </div>
