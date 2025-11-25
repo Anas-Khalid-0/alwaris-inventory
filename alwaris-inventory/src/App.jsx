@@ -53,7 +53,9 @@ const TRANSLATIONS = {
     verify: "Login",
     totalValue: "Total Inventory Value",
     scanMode: "Scan",
-    lowStockAlerts: "Low Stock Alerts"
+    lowStockAlerts: "Low Stock Alerts",
+    supplierDist: "Items by Supplier",
+    typeDist: "Inventory Type"
   },
   ur: {
     inventory: "اسٹاک (Inventory)",
@@ -76,7 +78,9 @@ const TRANSLATIONS = {
     verify: "داخل ہوں",
     totalValue: "کل مالیت",
     scanMode: "اسکین",
-    lowStockAlerts: "وارننگ"
+    lowStockAlerts: "وارننگ",
+    supplierDist: "سپلائر کی تفصیل",
+    typeDist: "قسم"
   }
 };
 
@@ -152,7 +156,8 @@ const LoginScreen = ({ onLogin, authError, onRetry, lang, setLang, t }) => {
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
         <div className="bg-slate-800 p-8 text-center relative">
-          <button onClick={() => setLang(lang === 'en' ? 'ur' : 'en')} className="absolute top-4 right-4 bg-slate-700 text-white text-xs px-2 py-1 rounded flex items-center">
+          {/* Mobile & Desktop Lang Toggle */}
+          <button onClick={() => setLang(lang === 'en' ? 'ur' : 'en')} className="absolute top-4 right-4 bg-slate-700 text-white text-xs px-2 py-1 rounded flex items-center hover:bg-slate-600 transition-colors">
             <Languages size={12} className="mr-1"/> {lang === 'en' ? 'اردو' : 'English'}
           </button>
           <h1 className="text-2xl font-black text-white tracking-tight">AL-WARIS <span className="text-blue-400">IMS</span></h1>
@@ -243,7 +248,7 @@ const InventoryCard = ({ item, onAction, role, t }) => {
   );
 };
 
-// --- REPORTING DASHBOARD (Simplified: No Charts) ---
+// --- REPORTING DASHBOARD ---
 const ReportsDashboard = ({ items, t }) => {
   const totalInventoryValue = useMemo(() => {
     return items.reduce((acc, item) => acc + ((item.stockUnit1 + item.stockUnit2) * (item.price || 0)), 0);
@@ -444,8 +449,16 @@ const App = () => {
 
       {/* MOBILE NAV */}
       <div className="md:hidden bg-white p-2 flex justify-around shadow-sm sticky top-0 z-10">
-         <button onClick={() => setView('inventory')} className={`p-2 rounded-lg ${view === 'inventory' ? 'bg-blue-50 text-blue-600' : 'text-slate-500'}`}><Package /></button>
-         <button onClick={() => setView('logs')} className={`p-2 rounded-lg ${view === 'logs' ? 'bg-blue-50 text-blue-600' : 'text-slate-500'}`}><History /></button>
+         <div className="flex items-center justify-between w-full px-4">
+            <div className="flex space-x-8">
+              <button onClick={() => setView('inventory')} className={`p-2 rounded-lg ${view === 'inventory' ? 'bg-blue-50 text-blue-600' : 'text-slate-500'}`}><Package /></button>
+              <button onClick={() => setView('logs')} className={`p-2 rounded-lg ${view === 'logs' ? 'bg-blue-50 text-blue-600' : 'text-slate-500'}`}><History /></button>
+            </div>
+            {/* MOBILE LANG TOGGLE */}
+            <button onClick={() => setLang(lang === 'en' ? 'ur' : 'en')} className="flex items-center text-slate-600 text-xs font-bold bg-slate-100 px-2 py-1 rounded">
+              {lang === 'en' ? 'اردو' : 'ENG'}
+            </button>
+         </div>
       </div>
 
       {/* MAIN */}
